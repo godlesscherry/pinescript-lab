@@ -1,0 +1,45 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Your Name (optional)
+// Indicator: [Indicator Name]
+// Version: 1
+// Description: [One-line description. Paste into TradingView Pine Editor.]
+// Overlay: true
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+length = input.int(14, "Length", minval=1, group="Settings")
+mult = input.float(2.0, "Multiplier", minval=0.1, step=0.1, group="Settings")
+
+// --- Group: Style
+colorLine = input.color(color.blue, "Line color", group="Style")
+lineWidth = input.int(2, "Line width", minval=1, maxval=4, group="Style")
+
+// =============================================================================
+// INDICATOR LOGIC
+// =============================================================================
+
+// --- Placeholder: replace with your calculation
+basis = ta.sma(close, length)
+upper = basis + mult * ta.stdev(close, length)
+lower = basis - mult * ta.stdev(close, length)
+
+// =============================================================================
+// PLOTTING
+// =============================================================================
+
+plot(basis, "Basis", color=colorLine, linewidth=lineWidth)
+plot(upper, "Upper", color=colorLine, linewidth=1)
+plot(lower, "Lower", color=colorLine, linewidth=1)
+
+// Optional: fill between bands
+fill(plot(upper), plot(lower), color=color.new(colorLine, 90))
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+
+// Example: alert when price crosses upper band
+alertcondition(ta.crossover(close, upper), "Price crosses above", "Indicator: price above upper")
+alertcondition(ta.crossunder(close, lower), "Price crosses below", "Indicator: price below lower")

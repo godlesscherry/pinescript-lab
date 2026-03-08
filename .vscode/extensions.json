@@ -1,0 +1,8 @@
+{
+  "recommendations": [
+    "tincho.pine-script-syntax-highlighting",
+    "yzhang.markdown-all-in-one",
+    "eamodio.gitlens",
+    "editorconfig.editorconfig"
+  ]
+}

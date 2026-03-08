@@ -1,0 +1,109 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Sweep Scalper v1
+// Strategy: Supertrend bias + Bollinger Bands + fractal sweep placeholder + optional MACD filter.
+// Paste into TradingView Pine Editor and run as Strategy.
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+// --- Supertrend (trend bias)
+stLen = input.int(10, "Supertrend length", minval=1, group="Supertrend")
+stMult = input.float(3.0, "Supertrend multiplier", minval=0.1, step=0.1, group="Supertrend")
+
+// --- Bollinger Bands
+bbLen = input.int(20, "BB length", minval=1, group="Bollinger Bands")
+bbMult = input.float(2.0, "BB multiplier", minval=0.1, step=0.1, group="Bollinger Bands")
+
+// --- Fractal / sweep (placeholder: always true until you add real sweep logic)
+useSweep = input.bool(true, "Require sweep (placeholder)", group="Sweep")
+
+// --- MACD filter (optional)
+useMacdFilter = input.bool(false, "Use MACD filter", group="MACD Filter")
+macdFast = input.int(12, "MACD fast", minval=1, group="MACD Filter")
+macdSlow = input.int(26, "MACD slow", minval=1, group="MACD Filter")
+macdSignal = input.int(9, "MACD signal", minval=1, group="MACD Filter")
+
+// --- Risk
+useStopLoss = input.bool(true, "Use stop loss", group="Risk")
+slTicks = input.int(20, "Stop loss (ticks)", minval=1, group="Risk")
+useTakeProfit = input.bool(true, "Use take profit", group="Risk")
+tpTicks = input.int(40, "Take profit (ticks)", minval=1, group="Risk")
+
+// =============================================================================
+// SUPERTREND
+// =============================================================================
+
+[supertrend, direction] = ta.supertrend(stMult, stLen)
+stUp = direction < 0
+stDown = direction > 0
+
+// =============================================================================
+// BOLLINGER BANDS
+// =============================================================================
+
+bbBasis = ta.sma(close, bbLen)
+bbDev = bbMult * ta.stdev(close, bbLen)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+
+// =============================================================================
+// FRACTAL SWEEP PLACEHOLDER
+// =============================================================================
+// TODO: Replace with real fractal pivot detection and "sweep" (liquidity grab) logic.
+// For now, always true so entries can fire when other conditions align.
+sweepLongOk = useSweep ? true : true
+sweepShortOk = useSweep ? true : true
+
+// =============================================================================
+// MACD FILTER (optional)
+// =============================================================================
+
+[macdLine, signalLine, _] = ta.macd(close, macdFast, macdSlow, macdSignal)
+macdLongOk = not useMacdFilter or macdLine > signalLine
+macdShortOk = not useMacdFilter or macdLine < signalLine
+
+// =============================================================================
+// ENTRY CONDITIONS
+// =============================================================================
+
+// Long: Supertrend up, price above BB basis (or near lower band), sweep ok, MACD ok
+longCond = stUp and close > bbLower and sweepLongOk and macdLongOk
+
+// Short: Supertrend down, price below BB basis (or near upper band), sweep ok, MACD ok
+shortCond = stDown and close < bbUpper and sweepShortOk and macdShortOk
+
+// =============================================================================
+// STRATEGY EXECUTION
+// =============================================================================
+
+strategy.entry("Long", strategy.long, when=longCond)
+strategy.entry("Short", strategy.short, when=shortCond)
+
+if useStopLoss and useTakeProfit
+    strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price - slTicks * syminfo.mintick, limit=strategy.position_avg_price + tpTicks * syminfo.mintick)
+    strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price + slTicks * syminfo.mintick, limit=strategy.position_avg_price - tpTicks * syminfo.mintick)
+else if useStopLoss
+    strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price - slTicks * syminfo.mintick)
+    strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price + slTicks * syminfo.mintick)
+else if useTakeProfit
+    strategy.exit("Exit Long", "Long", limit=strategy.position_avg_price + tpTicks * syminfo.mintick)
+    strategy.exit("Exit Short", "Short", limit=strategy.position_avg_price - tpTicks * syminfo.mintick)
+
+// =============================================================================
+// PLOTTING
+// =============================================================================
+
+plot(supertrend, "Supertrend", color=stUp ? color.green : color.red, linewidth=2)
+plot(bbBasis, "BB basis", color=color.gray, linewidth=1)
+plot(bbUpper, "BB upper", color=color.gray, linewidth=1)
+plot(bbLower, "BB lower", color=color.gray, linewidth=1)
+plotshape(longCond, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCond, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+
+alertcondition(longCond, "Sweep Scalper Long", "Sweep Scalper long signal")
+alertcondition(shortCond, "Sweep Scalper Short", "Sweep Scalper short signal")

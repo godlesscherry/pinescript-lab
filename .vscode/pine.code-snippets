@@ -1,0 +1,93 @@
+{
+  "Strategy header": {
+    "prefix": "pine-strategy",
+    "body": [
+      "// Strategy: ${1:Name}",
+      "// Version: 1",
+      "// ${2:Description}",
+      "",
+      "// ==============================================================================",
+      "// INPUTS",
+      "// ==============================================================================",
+      "$0"
+    ],
+    "description": "Pine strategy file header"
+  },
+  "Indicator header": {
+    "prefix": "pine-indicator",
+    "body": [
+      "// Indicator: ${1:Name}",
+      "// Version: 1",
+      "// ${2:Description}",
+      "// Overlay: true",
+      "",
+      "// ==============================================================================",
+      "// INPUTS",
+      "// ==============================================================================",
+      "$0"
+    ],
+    "description": "Pine indicator file header"
+  },
+  "Input group": {
+    "prefix": "pine-input",
+    "body": [
+      "// --- Group: ${1:Group name}",
+      "${2:name} = input.${3|int,float,bool,string|}(${4:default}, \"${5:Title}\", minval=${6:1}, group=\"${1:Group name}\")",
+      "$0"
+    ],
+    "description": "Pine input with group"
+  },
+  "Supertrend block": {
+    "prefix": "pine-st",
+    "body": [
+      "[supertrend, direction] = ta.supertrend(${1:mult}, ${2:length})",
+      "stUp = direction < 0",
+      "stDown = direction > 0",
+      "$0"
+    ],
+    "description": "Supertrend calculation and direction"
+  },
+  "Bollinger Bands block": {
+    "prefix": "pine-bb",
+    "body": [
+      "bbBasis = ta.sma(close, ${1:length})",
+      "bbDev = ${2:mult} * ta.stdev(close, ${1:length})",
+      "bbUpper = bbBasis + bbDev",
+      "bbLower = bbBasis - bbDev",
+      "$0"
+    ],
+    "description": "Bollinger Bands calculation"
+  },
+  "MACD block": {
+    "prefix": "pine-macd",
+    "body": [
+      "[macdLine, signalLine, histLine] = ta.macd(close, ${1:12}, ${2:26}, ${3:9})",
+      "$0"
+    ],
+    "description": "MACD calculation"
+  },
+  "Alertcondition block": {
+    "prefix": "pine-alert",
+    "body": [
+      "alertcondition(${1:condition}, \"${2:Alert title}\", \"${3:Message}\")",
+      "$0"
+    ],
+    "description": "Pine alertcondition"
+  },
+  "Strategy entry": {
+    "prefix": "pine-entry",
+    "body": [
+      "strategy.entry(\"${1:Long}\", strategy.${2|long,short|}, when=${3:condition})",
+      "$0"
+    ],
+    "description": "Strategy entry"
+  },
+  "Strategy exit (SL/TP)": {
+    "prefix": "pine-exit",
+    "body": [
+      "strategy.exit(\"${1:Exit}\", \"${2:Long}\", stop=${3:stopPrice}, limit=${4:limitPrice})",
+      "$0"
+    ],
+    "description": "Strategy exit with stop and limit"
+  }
+}

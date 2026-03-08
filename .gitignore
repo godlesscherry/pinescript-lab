@@ -1,0 +1,27 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# VS Code / Cursor — ignore local state, keep shared settings
+.vscode/*.log
+.vscode/settings.json.user
+.cursor/
+
+# Temp and build artifacts
+*.tmp
+*.temp
+*.bak
+*.swp
+*~
+*.log
+
+# Optional: uncomment if you want to ignore large screenshot batches
+# backtests/**/screenshots/*.png
+# backtests/**/screenshots/*.jpg

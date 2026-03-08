@@ -1,0 +1,66 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Your Name (optional)
+// Strategy: [Strategy Name]
+// Version: 1
+// Description: [One-line description. Paste into TradingView Pine Editor.]
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+// --- Group: Core parameters
+length = input.int(14, "Length", minval=1, group="Core")
+mult = input.float(1.0, "Multiplier", minval=0.1, step=0.1, group="Core")
+
+// --- Group: Risk (placeholders)
+riskPct = input.float(1.0, "Risk % per trade", minval=0.1, maxval=10, step=0.1, group="Risk")
+useStopLoss = input.bool(true, "Use stop loss", group="Risk")
+slTicks = input.int(20, "Stop loss (ticks)", minval=1, group="Risk")
+useTakeProfit = input.bool(true, "Use take profit", group="Risk")
+tpTicks = input.int(40, "Take profit (ticks)", minval=1, group="Risk")
+
+// --- Group: Filters (optional)
+useFilter = input.bool(false, "Use filter", group="Filters")
+
+// =============================================================================
+// STRATEGY LOGIC
+// =============================================================================
+
+// --- Placeholder: replace with your conditions
+trendUp = ta.ema(close, length) > ta.ema(close, length)[1]
+trendDown = ta.ema(close, length) < ta.ema(close, length)[1]
+
+longCondition = trendUp and (not useFilter or true)   // replace "true" with filter
+shortCondition = trendDown and (not useFilter or true)
+
+// =============================================================================
+// STRATEGY EXECUTION
+// =============================================================================
+
+strategy.entry("Long", strategy.long, when=longCondition)
+strategy.entry("Short", strategy.short, when=shortCondition)
+
+if useStopLoss and useTakeProfit
+    strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price - slTicks * syminfo.mintick, limit=strategy.position_avg_price + tpTicks * syminfo.mintick)
+    strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price + slTicks * syminfo.mintick, limit=strategy.position_avg_price - tpTicks * syminfo.mintick)
+else if useStopLoss
+    strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price - slTicks * syminfo.mintick)
+    strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price + slTicks * syminfo.mintick)
+else if useTakeProfit
+    strategy.exit("Exit Long", "Long", limit=strategy.position_avg_price + tpTicks * syminfo.mintick)
+    strategy.exit("Exit Short", "Short", limit=strategy.position_avg_price - tpTicks * syminfo.mintick)
+
+// =============================================================================
+// PLOTTING
+// =============================================================================
+
+plot(ta.ema(close, length), "EMA", color=color.blue, linewidth=2)
+plotshape(longCondition, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
+plotshape(shortCondition, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+
+alertcondition(longCondition, "Long signal", "Strategy long")
+alertcondition(shortCondition, "Short signal", "Strategy short")

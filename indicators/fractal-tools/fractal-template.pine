@@ -1,0 +1,38 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Fractal Template
+// Indicator: fractal pivot / structure placeholder. Extend with your sweep or level logic.
+// Overlay: true
+
+// =============================================================================
+// INPUTS
+// =============================================================================
+
+leftBars = input.int(2, "Left bars", minval=1, group="Fractal")
+rightBars = input.int(2, "Right bars", minval=1, group="Fractal")
+
+// =============================================================================
+// FRACTAL LOGIC (placeholder)
+// =============================================================================
+// Standard pivot high/low: high is highest among left+right+1 bars.
+// TODO: Add sweep detection (e.g. price briefly breaks pivot then reverses).
+
+float pivotHigh = ta.pivothigh(high, leftBars, rightBars)
+float pivotLow = ta.pivotlow(low, leftBars, rightBars)
+
+// =============================================================================
+// PLOTTING
+// =============================================================================
+
+plot(pivotHigh, "Pivot high", color=color.new(color.red, 50), linewidth=2)
+plot(pivotLow, "Pivot low", color=color.new(color.green, 50), linewidth=2)
+
+// Optional: plot only at pivot bars
+plotshape(ta.notna(pivotHigh), "PH", shape.diamond, location.abovebar, color.red, size=size.tiny)
+plotshape(ta.notna(pivotLow), "PL", shape.diamond, location.belowbar, color.green, size=size.tiny)
+
+// =============================================================================
+// ALERTS
+// =============================================================================
+
+alertcondition(ta.notna(pivotHigh), "Fractal high", "Fractal pivot high")
+alertcondition(ta.notna(pivotLow), "Fractal low", "Fractal pivot low")
