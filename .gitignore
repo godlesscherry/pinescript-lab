@@ -9,10 +9,14 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# VS Code / Cursor — ignore local state, keep shared settings
+# VS Code — ignore local state, keep shared settings
 .vscode/*.log
 .vscode/settings.json.user
-.cursor/
+
+# Cursor — ignore local state, keep project rules in .cursor/rules/
+.cursor/*
+!.cursor/rules/
+!.cursor/rules/**
 
 # Temp and build artifacts
 *.tmp

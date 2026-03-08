@@ -1,0 +1,18 @@
+---
+description: Pine Script must be v6 only; v5 is outdated
+globs: "**/*.pine"
+alwaysApply: false
+---
+
+# Pine Script: v6 Only
+
+- **Always write Pine Script v6.** Do not use v5 or earlier; v5 is outdated.
+- **Every `.pine` file must start with the v6 compiler directive** on the first line:
+
+  ```
+  //@version=6
+  ```
+
+- Place `//@version=6` at the very top of the file, before the MPL comment or any other content.
+- Use v6 syntax and built-ins only (e.g. `indicator()`, `strategy()`, `input.*`, `ta.*`, `math.*`, `str.*`, `array.*`, `color.*`, `table.*`, etc.). Do not suggest or generate v5-only patterns.
+- When creating or editing any `.pine` file in this repo, ensure the version directive is present and set to 6.

@@ -2,6 +2,8 @@
 
 How to create, version, and document strategies and backtests in this repo.
 
+**Pine Script version:** All scripts in this repo use **Pine Script v6 only** (v5 is outdated). Every `.pine` file must start with `//@version=6` on the first line. Templates and rules enforce this.
+
 ## Creating a New Strategy Version
 
 1. **First version** — Create `strategies/your-strategy/v1.pine` from `strategies/templates/strategy-template.pine`. Add `README.md` and `notes.md`.

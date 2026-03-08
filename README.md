@@ -51,7 +51,9 @@ pinescript-lab/
 │   └── 2026/2026-03/...     # screenshots + notes per experiment
 ├── journal/                 # Research log and ongoing notes
 ├── snippets/                # VS Code/Cursor Pine snippets
-└── .vscode/                 # Shared editor config
+├── .vscode/                 # Editor config (settings, extensions, snippets)
+└── .cursor/                 # Cursor AI rules (e.g. Pine v6 only)
+    └── rules/
 ```
 
 See each folder’s `README.md` for details.
