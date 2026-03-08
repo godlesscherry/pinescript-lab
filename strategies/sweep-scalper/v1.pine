@@ -1,110 +1,230 @@
 //@version=6
-// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// Sweep Scalper v1
-// Strategy: Supertrend bias + Bollinger Bands + fractal sweep placeholder + optional MACD filter.
-// Paste into TradingView Pine Editor and run as Strategy.
+strategy('Hari Sweep Scalper v1', overlay = true, pyramiding = 0, initial_capital = 100000, default_qty_type = strategy.percent_of_equity, default_qty_value = 10, calc_on_every_tick = false, process_orders_on_close = true, commission_type = strategy.commission.percent, commission_value = 0.03)
 
-// =============================================================================
-// INPUTS
-// =============================================================================
+// ----------------------------------------------------
+// Inputs
+// ----------------------------------------------------
+groupTrend = 'Trend'
+groupBB = 'Bollinger Bands'
+groupFractal = 'Fractal Sweep'
+groupMACD = 'Momentum Filter'
+groupRisk = 'Risk / Exit'
+groupVis = 'Visuals'
 
-// --- Supertrend (trend bias)
-stLen = input.int(10, "Supertrend length", minval=1, group="Supertrend")
-stMult = input.float(3.0, "Supertrend multiplier", minval=0.1, step=0.1, group="Supertrend")
+stAtrLen = input.int(10, 'Supertrend ATR Length', minval = 1, group = groupTrend)
+stFactor = input.float(2.0, 'Supertrend Factor', minval = 0.1, step = 0.1, group = groupTrend)
 
-// --- Bollinger Bands
-bbLen = input.int(20, "BB length", minval=1, group="Bollinger Bands")
-bbMult = input.float(2.0, "BB multiplier", minval=0.1, step=0.1, group="Bollinger Bands")
+bbLen = input.int(20, 'BB Length', minval = 1, group = groupBB)
+bbMult = input.float(2.0, 'BB StdDev', minval = 0.1, step = 0.1, group = groupBB)
+useBBMid = input.bool(true, 'Allow Midline Sweep', group = groupBB)
+useBBOuter = input.bool(true, 'Allow Outer Band Sweep', group = groupBB)
 
-// --- Fractal / sweep (placeholder: always true until you add real sweep logic)
-useSweep = input.bool(true, "Require sweep (placeholder)", group="Sweep")
+frLen = input.int(2, 'Fractal Strength', minval = 1, maxval = 10, group = groupFractal)
+useFrSweep = input.bool(true, 'Require Fractal Sweep', group = groupFractal)
 
-// --- MACD filter (optional)
-useMacdFilter = input.bool(false, "Use MACD filter", group="MACD Filter")
-macdFast = input.int(12, "MACD fast", minval=1, group="MACD Filter")
-macdSlow = input.int(26, "MACD slow", minval=1, group="MACD Filter")
-macdSignal = input.int(9, "MACD signal", minval=1, group="MACD Filter")
+useMACD = input.bool(true, 'Use MACD Filter', group = groupMACD)
+macdFast = input.int(12, 'MACD Fast', minval = 1, group = groupMACD)
+macdSlow = input.int(26, 'MACD Slow', minval = 1, group = groupMACD)
+macdSignal = input.int(9, 'MACD Signal', minval = 1, group = groupMACD)
 
-// --- Risk
-useStopLoss = input.bool(true, "Use stop loss", group="Risk")
-slTicks = input.int(20, "Stop loss (ticks)", minval=1, group="Risk")
-useTakeProfit = input.bool(true, "Use take profit", group="Risk")
-tpTicks = input.int(40, "Take profit (ticks)", minval=1, group="Risk")
+slPct = input.float(0.35, 'Stop Loss %', minval = 0.05, step = 0.05, group = groupRisk)
+tpPct = input.float(0.60, 'Take Profit %', minval = 0.05, step = 0.05, group = groupRisk)
+maxHoldBars = input.int(4, 'Max Hold Bars (15s chart: 4 bars = 1 min)', minval = 1, group = groupRisk)
+setupExpires = input.int(2, 'Setup Expires After N Bars', minval = 1, maxval = 10, group = groupRisk)
+useShorts = input.bool(true, 'Enable Shorts', group = groupRisk)
+useTrendFlipExit = input.bool(true, 'Exit on Trend Flip (Supertrend)', group = groupRisk)
 
-// =============================================================================
-// SUPERTREND
-// =============================================================================
+showLabels = input.bool(true, 'Show Setup / Entry Labels', group = groupVis)
+showFractals = input.bool(true, 'Show Last Fractal Levels', group = groupVis)
+showBB = input.bool(true, 'Show Bollinger Bands', group = groupVis)
 
-[supertrend, direction] = ta.supertrend(stMult, stLen)
-stUp = direction < 0
-stDown = direction > 0
-
-// =============================================================================
-// BOLLINGER BANDS
-// =============================================================================
+// ----------------------------------------------------
+// Core calculations
+// ----------------------------------------------------
+[stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+// Pine quirk: stDir < 0 is usually uptrend, stDir > 0 is downtrend.
+bullTrend = stDir < 0
+bearTrend = stDir > 0
 
 bbBasis = ta.sma(close, bbLen)
 bbDev = bbMult * ta.stdev(close, bbLen)
 bbUpper = bbBasis + bbDev
 bbLower = bbBasis - bbDev
 
-// =============================================================================
-// FRACTAL SWEEP PLACEHOLDER
-// =============================================================================
-// TODO: Replace with real fractal pivot detection and "sweep" (liquidity grab) logic.
-// For now, always true so entries can fire when other conditions align.
-sweepLongOk = useSweep ? true : true
-sweepShortOk = useSweep ? true : true
+[macdLine, macdSig, macdHist] = ta.macd(close, macdFast, macdSlow, macdSignal)
+macdBull = macdLine > macdSig and macdHist >= 0
+macdBear = macdLine < macdSig and macdHist <= 0
 
-// =============================================================================
-// MACD FILTER (optional)
-// =============================================================================
+// ----------------------------------------------------
+// Fractal pivots
+// ----------------------------------------------------
+pivHi = ta.pivothigh(high, frLen, frLen)
+pivLo = ta.pivotlow(low, frLen, frLen)
 
-[macdLine, signalLine, _] = ta.macd(close, macdFast, macdSlow, macdSignal)
-macdLongOk = not useMacdFilter or macdLine > signalLine
-macdShortOk = not useMacdFilter or macdLine < signalLine
+var float lastFractalHigh = na
+var float lastFractalLow = na
 
-// =============================================================================
-// ENTRY CONDITIONS
-// =============================================================================
+if not na(pivHi)
+    lastFractalHigh := pivHi
+    lastFractalHigh
 
-// Long: Supertrend up, price above BB basis (or near lower band), sweep ok, MACD ok
-longCond = stUp and close > bbLower and sweepLongOk and macdLongOk
+if not na(pivLo)
+    lastFractalLow := pivLo
+    lastFractalLow
 
-// Short: Supertrend down, price below BB basis (or near upper band), sweep ok, MACD ok
-shortCond = stDown and close < bbUpper and sweepShortOk and macdShortOk
+fractalSweepLong = not na(lastFractalLow) and low < lastFractalLow and close > lastFractalLow
+fractalSweepShort = not na(lastFractalHigh) and high > lastFractalHigh and close < lastFractalHigh
 
-// =============================================================================
-// STRATEGY EXECUTION
-// =============================================================================
+// ----------------------------------------------------
+// Sweep / rejection logic
+// ----------------------------------------------------
+// "Tap or take out" Supertrend / BB lower-mid for longs
+// "Tap or take out" Supertrend / BB upper-mid for shorts
 
-strategy.entry("Long", strategy.long, when=longCond)
-strategy.entry("Short", strategy.short, when=shortCond)
+stTapLong = low <= stLine
+stTapShort = high >= stLine
 
-if useStopLoss and useTakeProfit
-    strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price - slTicks * syminfo.mintick, limit=strategy.position_avg_price + tpTicks * syminfo.mintick)
-    strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price + slTicks * syminfo.mintick, limit=strategy.position_avg_price - tpTicks * syminfo.mintick)
-else if useStopLoss
-    strategy.exit("Exit Long", "Long", stop=strategy.position_avg_price - slTicks * syminfo.mintick)
-    strategy.exit("Exit Short", "Short", stop=strategy.position_avg_price + slTicks * syminfo.mintick)
-else if useTakeProfit
-    strategy.exit("Exit Long", "Long", limit=strategy.position_avg_price + tpTicks * syminfo.mintick)
-    strategy.exit("Exit Short", "Short", limit=strategy.position_avg_price - tpTicks * syminfo.mintick)
+bbMidLong = useBBMid and low < bbBasis
+bbMidShort = useBBMid and high > bbBasis
 
-// =============================================================================
-// PLOTTING
-// =============================================================================
+bbOuterLong = useBBOuter and low < bbLower
+bbOuterShort = useBBOuter and high > bbUpper
 
-plot(supertrend, "Supertrend", color=stUp ? color.green : color.red, linewidth=2)
-plot(bbBasis, "BB basis", color=color.gray, linewidth=1)
-plot(bbUpper, "BB upper", color=color.gray, linewidth=1)
-plot(bbLower, "BB lower", color=color.gray, linewidth=1)
-plotshape(longCond, "Long", shape.triangleup, location.belowbar, color.green, size=size.small)
-plotshape(shortCond, "Short", shape.triangledown, location.abovebar, color.red, size=size.small)
+zoneSweepLong = stTapLong or bbMidLong or bbOuterLong
+zoneSweepShort = stTapShort or bbMidShort or bbOuterShort
 
-// =============================================================================
-// ALERTS
-// =============================================================================
+// Opposite candle rejection
+// Long: bullish rejection after bearish pressure
+// Short: bearish rejection after bullish pressure
+bullReject = close > open and close > close[1]
+bearReject = close < open and close < close[1]
 
-alertcondition(longCond, "Sweep Scalper Long", "Sweep Scalper long signal")
-alertcondition(shortCond, "Sweep Scalper Short", "Sweep Scalper short signal")
+// Full setup
+longSetup = bullTrend and zoneSweepLong and bullReject and (not useFrSweep or fractalSweepLong) and (not useMACD or macdBull)
+
+shortSetup = useShorts and bearTrend and zoneSweepShort and bearReject and (not useFrSweep or fractalSweepShort) and (not useMACD or macdBear)
+
+// ----------------------------------------------------
+// Pending setup state
+// Entry is on break of rejection candle high/low
+// ----------------------------------------------------
+var bool pendingLong = false
+var bool pendingShort = false
+var float pendingLongStop = na
+var float pendingShortStop = na
+var int pendingLongBar = na
+var int pendingShortBar = na
+
+if longSetup and strategy.position_size == 0
+    pendingLong := true
+    pendingLongStop := high
+    pendingLongBar := bar_index
+    pendingShort := false
+    pendingShortStop := na
+    pendingShortBar := na
+
+if shortSetup and strategy.position_size == 0
+    pendingShort := true
+    pendingShortStop := low
+    pendingShortBar := bar_index
+    pendingLong := false
+    pendingLongStop := na
+    pendingLongBar := na
+
+// Expire pending setups after N bars
+if pendingLong and bar_index - pendingLongBar > setupExpires
+    pendingLong := false
+    pendingLongStop := na
+    pendingLongBar := na
+
+if pendingShort and bar_index - pendingShortBar > setupExpires
+    pendingShort := false
+    pendingShortStop := na
+    pendingShortBar := na
+
+// Entry trigger: break of rejection candle high/low
+longBreak = pendingLong and high > pendingLongStop
+shortBreak = pendingShort and low < pendingShortStop
+
+if longBreak and strategy.position_size == 0
+    strategy.entry('Long', strategy.long)
+    pendingLong := false
+    pendingLongStop := na
+    pendingLongBar := na
+
+if shortBreak and strategy.position_size == 0
+    strategy.entry('Short', strategy.short)
+    pendingShort := false
+    pendingShortStop := na
+    pendingShortBar := na
+
+// ----------------------------------------------------
+// Trade management
+// ----------------------------------------------------
+var int entryBar = na
+
+newLong = strategy.position_size > 0 and strategy.position_size[1] <= 0
+newShort = strategy.position_size < 0 and strategy.position_size[1] >= 0
+flatNow = strategy.position_size == 0
+
+if newLong or newShort
+    entryBar := bar_index
+
+if flatNow
+    entryBar := na
+
+longStopPrice = strategy.position_avg_price * (1 - slPct / 100)
+longTakePrice = strategy.position_avg_price * (1 + tpPct / 100)
+shortStopPrice = strategy.position_avg_price * (1 + slPct / 100)
+shortTakePrice = strategy.position_avg_price * (1 - tpPct / 100)
+
+if strategy.position_size > 0
+    strategy.exit('Long Exit', from_entry = 'Long', stop = longStopPrice, limit = longTakePrice)
+
+if strategy.position_size < 0
+    strategy.exit('Short Exit', from_entry = 'Short', stop = shortStopPrice, limit = shortTakePrice)
+
+timeExitLong = strategy.position_size > 0 and not na(entryBar) and bar_index - entryBar >= maxHoldBars
+timeExitShort = strategy.position_size < 0 and not na(entryBar) and bar_index - entryBar >= maxHoldBars
+
+if timeExitLong
+    strategy.close('Long', comment = 'Time Exit')
+
+if timeExitShort
+    strategy.close('Short', comment = 'Time Exit')
+
+// Optional early exit on opposite supertrend flip
+flipExitLong = useTrendFlipExit and strategy.position_size > 0 and bearTrend
+flipExitShort = useTrendFlipExit and strategy.position_size < 0 and bullTrend
+
+if flipExitLong
+    strategy.close('Long', comment = 'Trend Flip')
+
+if flipExitShort
+    strategy.close('Short', comment = 'Trend Flip')
+
+// ----------------------------------------------------
+// Visuals
+// ----------------------------------------------------
+plot(stLine, 'Supertrend', color = bullTrend ? color.lime : color.red, linewidth = 2)
+
+plot(showBB ? bbUpper : na, 'BB Upper', color = color.new(color.blue, 20))
+plot(showBB ? bbBasis : na, 'BB Basis', color = color.new(color.yellow, 0))
+plot(showBB ? bbLower : na, 'BB Lower', color = color.new(color.blue, 20))
+
+plot(showFractals ? lastFractalHigh : na, 'Last Fractal High', color = color.new(color.red, 40), style = plot.style_linebr)
+plot(showFractals ? lastFractalLow : na, 'Last Fractal Low', color = color.new(color.green, 40), style = plot.style_linebr)
+
+barcolor(bullTrend ? color.new(color.green, 70) : color.new(color.red, 70))
+
+if showLabels and longSetup
+    label.new(bar_index, low, 'Long Setup', style = label.style_label_up, color = color.new(color.green, 0), textcolor = color.white)
+
+if showLabels and shortSetup
+    label.new(bar_index, high, 'Short Setup', style = label.style_label_down, color = color.new(color.red, 0), textcolor = color.white)
+
+if showLabels and longBreak
+    label.new(bar_index, low, 'Long Entry', style = label.style_label_up, color = color.new(color.teal, 0), textcolor = color.white)
+
+if showLabels and shortBreak
+    label.new(bar_index, high, 'Short Entry', style = label.style_label_down, color = color.new(color.maroon, 0), textcolor = color.white)
