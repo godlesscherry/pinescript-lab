@@ -1,0 +1,275 @@
+//@version=6
+// Liquidity Sweep Options Scalping v2
+// Microstructure-based: trend → pullback → liquidity sweep → rejection → momentum burst.
+// Indicator stack: Supertrend (trend), Bollinger Bands (volatility extremes),
+// Williams Fractals (structural pivots), MACD (momentum filter — avoid strong opposing).
+// Entry on break of rejection candle high/low. Exits: SL; BB band touch (upper=longs, lower=shorts), hold until curve turns if BB expanding; or long wick (rejection); max hold; optional trend flip.
+strategy('Liquidity Sweep Scalper v2', overlay = true, pyramiding = 0, initial_capital = 100000, default_qty_type = strategy.percent_of_equity, default_qty_value = 10, calc_on_every_tick = false, process_orders_on_close = true, commission_type = strategy.commission.percent, commission_value = 0.03)
+
+// ----------------------------------------------------
+// Inputs
+// ----------------------------------------------------
+groupTrend = '1. Trend (Supertrend)'
+groupBB = '2. Volatility (Bollinger Bands)'
+groupFractal = '3. Structural Pivots (Williams Fractals)'
+groupMACD = '4. Momentum Filter (MACD)'
+groupSetup = '5. Sweep & Rejection'
+groupRisk = 'Risk / Exit'
+groupVis = 'Visuals'
+
+stAtrLen = input.int(10, 'Supertrend ATR Length', minval = 1, group = groupTrend)
+stFactor = input.float(2.0, 'Supertrend Factor', minval = 0.1, step = 0.1, group = groupTrend)
+
+bbLen = input.int(20, 'BB Length', minval = 1, group = groupBB)
+bbMult = input.float(2.0, 'BB StdDev', minval = 0.1, step = 0.1, group = groupBB)
+useBBMid = input.bool(true, 'Allow Midline Sweep', group = groupBB)
+useBBOuter = input.bool(true, 'Allow Outer Band Sweep', group = groupBB)
+
+frLen = input.int(2, 'Fractal Strength (left/right bars)', minval = 1, maxval = 10, group = groupFractal)
+useFrSweep = input.bool(true, 'Require Fractal Pivot Sweep', group = groupFractal)
+
+useMACD = input.bool(true, 'Use MACD Momentum Filter', group = groupMACD)
+macdFast = input.int(12, 'MACD Fast', minval = 1, group = groupMACD)
+macdSlow = input.int(26, 'MACD Slow', minval = 1, group = groupMACD)
+macdSignal = input.int(9, 'MACD Signal', minval = 1, group = groupMACD)
+macdOpposingThreshold = input.float(0.0, 'MACD Opposing Threshold (avoid long if hist < -this, short if hist > +this)', minval = 0.0, step = 0.01, group = groupMACD)
+
+allowSweepPriorBar = input.bool(true, 'Allow Sweep on Prior Bar (rejection on current bar)', group = groupSetup)
+rejectionMinBodyPct = input.float(0.0, 'Rejection Candle Min Body % of Range (0 = any)', minval = 0.0, maxval = 100.0, step = 5.0, group = groupSetup)
+
+slPct = input.float(0.35, 'Stop Loss %', minval = 0.05, step = 0.05, group = groupRisk)
+setupExpires = input.int(2, 'Setup Expires After N Bars', minval = 1, maxval = 10, group = groupRisk)
+useShorts = input.bool(true, 'Enable Shorts', group = groupRisk)
+// Exit: BB touch (+ curve turn if expanding) or long wick
+useBBTouchExit = input.bool(true, 'Exit on BB Band Touch (upper=longs, lower=shorts)', group = groupRisk)
+useCurveTurnHold = input.bool(true, 'When BB Expanding: Hold Until Band Curve Turns', group = groupRisk)
+useLongWickExit = input.bool(true, 'Exit on Long Wick (rejection = level unlikely to break)', group = groupRisk)
+longWickPct = input.float(50.0, 'Long Wick Min % of Bar Range', minval = 20.0, maxval = 90.0, step = 5.0, group = groupRisk)
+maxHoldBars = input.int(20, 'Max Hold Bars (safety cap)', minval = 1, group = groupRisk)
+useTrendFlipExit = input.bool(false, 'Exit on Trend Flip (Supertrend)', group = groupRisk)
+
+showArrows = input.bool(true, 'Show Entry & Exit Arrows', group = groupVis)
+showFractals = input.bool(true, 'Show Last Fractal Levels', group = groupVis)
+showBB = input.bool(true, 'Show Bollinger Bands', group = groupVis)
+
+// ----------------------------------------------------
+// Step 1 — Trend alignment (Supertrend)
+// ----------------------------------------------------
+[stLine, stDir] = ta.supertrend(stFactor, stAtrLen)
+bullTrend = stDir < 0
+bearTrend = stDir > 0
+
+justFlippedBull = bullTrend and not bullTrend[1]
+justFlippedBear = bearTrend and not bearTrend[1]
+
+// ----------------------------------------------------
+// Step 2 — Liquidity sweep zones (BB, ST, Fractals)
+// ----------------------------------------------------
+bbBasis = ta.sma(close, bbLen)
+bbDev = bbMult * ta.stdev(close, bbLen)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+
+// BB expansion: band width increasing. Curve turn: band stops extending (upper turns down, lower turns up).
+bbWidth = bbUpper - bbLower
+bbExpanding = bbWidth > bbWidth[1]
+upperBandTurningDown = bbUpper < bbUpper[1]
+lowerBandTurningUp = bbLower > bbLower[1]
+
+pivHi = ta.pivothigh(high, frLen, frLen)
+pivLo = ta.pivotlow(low, frLen, frLen)
+
+var float lastFractalHigh = na
+var float lastFractalLow = na
+
+if not na(pivHi)
+    lastFractalHigh := pivHi
+if not na(pivLo)
+    lastFractalLow := pivLo
+
+// Sweep: price taps or breaks level (current bar)
+stSweepLong = low <= stLine
+stSweepShort = high >= stLine
+bbMidSweepLong = useBBMid and low <= bbBasis
+bbMidSweepShort = useBBMid and high >= bbBasis
+bbOuterSweepLong = useBBOuter and low <= bbLower
+bbOuterSweepShort = useBBOuter and high >= bbUpper
+frSweepLong = not na(lastFractalLow) and low < lastFractalLow and close > lastFractalLow
+frSweepShort = not na(lastFractalHigh) and high > lastFractalHigh and close < lastFractalHigh
+
+zoneSweepLongCurr = stSweepLong or bbMidSweepLong or bbOuterSweepLong or (useFrSweep and frSweepLong)
+zoneSweepShortCurr = stSweepShort or bbMidSweepShort or bbOuterSweepShort or (useFrSweep and frSweepShort)
+
+// Optional: sweep occurred on prior bar (any of the same zones)
+stSweepLongPrev = low[1] <= stLine[1]
+stSweepShortPrev = high[1] >= stLine[1]
+bbMidSweepLongPrev = useBBMid and low[1] <= bbBasis[1]
+bbMidSweepShortPrev = useBBMid and high[1] >= bbBasis[1]
+bbOuterSweepLongPrev = useBBOuter and low[1] <= bbLower[1]
+bbOuterSweepShortPrev = useBBOuter and high[1] >= bbUpper[1]
+frSweepLongPrev = not na(lastFractalLow[1]) and low[1] < lastFractalLow[1] and close[1] > lastFractalLow[1]
+frSweepShortPrev = not na(lastFractalHigh[1]) and high[1] > lastFractalHigh[1] and close[1] < lastFractalHigh[1]
+
+zoneSweepLongPrev = stSweepLongPrev or bbMidSweepLongPrev or bbOuterSweepLongPrev or (useFrSweep and frSweepLongPrev)
+zoneSweepShortPrev = stSweepShortPrev or bbMidSweepShortPrev or bbOuterSweepShortPrev or (useFrSweep and frSweepShortPrev)
+
+sweepLongOk = zoneSweepLongCurr or (allowSweepPriorBar and zoneSweepLongPrev)
+sweepShortOk = zoneSweepShortCurr or (allowSweepPriorBar and zoneSweepShortPrev)
+
+// ----------------------------------------------------
+// Step 3 — Rejection candle (reversal after sweep)
+// ----------------------------------------------------
+bullRejectCandle = close > open and close > close[1]
+bearRejectCandle = close < open and close < close[1]
+
+barRange = high - low
+barBody = math.abs(close - open)
+bodyStrongLong = rejectionMinBodyPct == 0.0 or (barRange > 0 and (barBody / barRange) * 100 >= rejectionMinBodyPct)
+bodyStrongShort = rejectionMinBodyPct == 0.0 or (barRange > 0 and (barBody / barRange) * 100 >= rejectionMinBodyPct)
+
+bullReject = bullRejectCandle and bodyStrongLong
+bearReject = bearRejectCandle and bodyStrongShort
+
+// ----------------------------------------------------
+// Step 4 — Momentum filter (MACD: no strong opposing)
+// ----------------------------------------------------
+[macdLine, macdSig, macdHist] = ta.macd(close, macdFast, macdSlow, macdSignal)
+
+// For long: avoid if MACD shows strong bearish momentum
+macdNotOpposingLong = not useMACD or macdHist >= -macdOpposingThreshold
+// For short: avoid if MACD shows strong bullish momentum
+macdNotOpposingShort = not useMACD or macdHist <= macdOpposingThreshold
+
+// ----------------------------------------------------
+// Full setup (Steps 1–4) — entry on Step 5 (break of rejection candle)
+// ----------------------------------------------------
+longSetup = bullTrend and not justFlippedBull and sweepLongOk and bullReject and macdNotOpposingLong
+shortSetup = useShorts and bearTrend and not justFlippedBear and sweepShortOk and bearReject and macdNotOpposingShort
+
+// ----------------------------------------------------
+// Pending setup: entry trigger = break of rejection candle high/low
+// ----------------------------------------------------
+var bool pendingLong = false
+var bool pendingShort = false
+var float pendingLongStop = na
+var float pendingShortStop = na
+var int pendingLongBar = na
+var int pendingShortBar = na
+
+if longSetup and strategy.position_size == 0
+    pendingLong := true
+    pendingLongStop := high
+    pendingLongBar := bar_index
+    pendingShort := false
+    pendingShortStop := na
+    pendingShortBar := na
+
+if shortSetup and strategy.position_size == 0
+    pendingShort := true
+    pendingShortStop := low
+    pendingShortBar := bar_index
+    pendingLong := false
+    pendingLongStop := na
+    pendingLongBar := na
+
+if pendingLong and bar_index - pendingLongBar > setupExpires
+    pendingLong := false
+    pendingLongStop := na
+    pendingLongBar := na
+
+if pendingShort and bar_index - pendingShortBar > setupExpires
+    pendingShort := false
+    pendingShortStop := na
+    pendingShortBar := na
+
+longBreak = pendingLong and high > pendingLongStop
+shortBreak = pendingShort and low < pendingShortStop
+
+if longBreak and strategy.position_size == 0
+    strategy.entry('Long', strategy.long)
+    pendingLong := false
+    pendingLongStop := na
+    pendingLongBar := na
+
+if shortBreak and strategy.position_size == 0
+    strategy.entry('Short', strategy.short)
+    pendingShort := false
+    pendingShortStop := na
+    pendingShortBar := na
+
+// ----------------------------------------------------
+// Trade management (exits)
+// ----------------------------------------------------
+var int entryBar = na
+
+newLong = strategy.position_size > 0 and strategy.position_size[1] <= 0
+newShort = strategy.position_size < 0 and strategy.position_size[1] >= 0
+flatNow = strategy.position_size == 0
+
+if newLong or newShort
+    entryBar := bar_index
+if flatNow
+    entryBar := na
+
+longStopPrice = strategy.position_avg_price * (1 - slPct / 100)
+shortStopPrice = strategy.position_avg_price * (1 + slPct / 100)
+
+if strategy.position_size > 0
+    strategy.exit('Long Exit', from_entry = 'Long', stop = longStopPrice)
+if strategy.position_size < 0
+    strategy.exit('Short Exit', from_entry = 'Short', stop = shortStopPrice)
+
+// Long wick = rejection at level (move unlikely to break). Upper wick on longs, lower wick on shorts.
+barRangeExit = high - low
+upperWickLen = high - math.max(open, close)
+lowerWickLen = math.min(open, close) - low
+longUpperWick = barRangeExit > 0 and (upperWickLen / barRangeExit) * 100 >= longWickPct
+longLowerWick = barRangeExit > 0 and (lowerWickLen / barRangeExit) * 100 >= longWickPct
+
+// Long exit: price touches BB upper → exit; if BB expanding, stay until upper curve turns. Or exit on long upper wick.
+bbLongExit = useBBTouchExit and high >= bbUpper and (not useCurveTurnHold or not bbExpanding or upperBandTurningDown)
+wickLongExit = useLongWickExit and longUpperWick
+
+// Short exit: price touches BB lower → exit; if BB expanding, stay until lower curve turns. Or exit on long lower wick.
+bbShortExit = useBBTouchExit and low <= bbLower and (not useCurveTurnHold or not bbExpanding or lowerBandTurningUp)
+wickShortExit = useLongWickExit and longLowerWick
+
+if strategy.position_size > 0 and (bbLongExit or wickLongExit)
+    strategy.close('Long', comment = bbLongExit ? 'BB Upper' : 'Long Wick')
+if strategy.position_size < 0 and (bbShortExit or wickShortExit)
+    strategy.close('Short', comment = bbShortExit ? 'BB Lower' : 'Long Wick')
+
+timeExitLong = strategy.position_size > 0 and not na(entryBar) and bar_index - entryBar >= maxHoldBars
+timeExitShort = strategy.position_size < 0 and not na(entryBar) and bar_index - entryBar >= maxHoldBars
+
+if timeExitLong
+    strategy.close('Long', comment = 'Time Exit')
+if timeExitShort
+    strategy.close('Short', comment = 'Time Exit')
+
+flipExitLong = useTrendFlipExit and strategy.position_size > 0 and bearTrend
+flipExitShort = useTrendFlipExit and strategy.position_size < 0 and bullTrend
+
+if flipExitLong
+    strategy.close('Long', comment = 'Trend Flip')
+if flipExitShort
+    strategy.close('Short', comment = 'Trend Flip')
+
+// ----------------------------------------------------
+// Visuals
+// ----------------------------------------------------
+plot(stLine, 'Supertrend', color = bullTrend ? color.lime : color.red, linewidth = 2)
+plot(showBB ? bbUpper : na, 'BB Upper', color = color.new(color.blue, 20))
+plot(showBB ? bbBasis : na, 'BB Basis', color = color.new(color.yellow, 0))
+plot(showBB ? bbLower : na, 'BB Lower', color = color.new(color.blue, 20))
+plot(showFractals ? lastFractalHigh : na, 'Last Fractal High', color = color.new(color.red, 40), style = plot.style_linebr)
+plot(showFractals ? lastFractalLow : na, 'Last Fractal Low', color = color.new(color.green, 40), style = plot.style_linebr)
+
+barcolor(bullTrend ? color.new(color.green, 70) : color.new(color.red, 70))
+
+newFlat = strategy.position_size == 0 and strategy.position_size[1] != 0
+
+// Plot on trigger bars (longBreak/shortBreak) so arrows show when entry is sent, not next bar
+plotshape(showArrows and longBreak, 'Long Entry', shape.triangleup, location.belowbar, color.teal, size = size.small)
+plotshape(showArrows and shortBreak, 'Short Entry', shape.triangledown, location.abovebar, color.maroon, size = size.small)
+plotshape(showArrows and newFlat, 'Exit', shape.xcross, location.abovebar, color.gray, size = size.small)

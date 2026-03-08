@@ -46,6 +46,10 @@ showBB = input.bool(true, 'Show Bollinger Bands', group = groupVis)
 bullTrend = stDir < 0
 bearTrend = stDir > 0
 
+// Ignore first candle after trend change (often a fakeout; large candle can tap the line).
+justFlippedBull = bullTrend and not bullTrend[1]
+justFlippedBear = bearTrend and not bearTrend[1]
+
 bbBasis = ta.sma(close, bbLen)
 bbDev = bbMult * ta.stdev(close, bbLen)
 bbUpper = bbBasis + bbDev
@@ -99,10 +103,10 @@ zoneSweepShort = stTapShort or bbMidShort or bbOuterShort
 bullReject = close > open and close > close[1]
 bearReject = close < open and close < close[1]
 
-// Full setup
-longSetup = bullTrend and zoneSweepLong and bullReject and (not useFrSweep or fractalSweepLong) and (not useMACD or macdBull)
+// Full setup (exclude first candle after ST flip to avoid fakeout)
+longSetup = bullTrend and not justFlippedBull and zoneSweepLong and bullReject and (not useFrSweep or fractalSweepLong) and (not useMACD or macdBull)
 
-shortSetup = useShorts and bearTrend and zoneSweepShort and bearReject and (not useFrSweep or fractalSweepShort) and (not useMACD or macdBear)
+shortSetup = useShorts and bearTrend and not justFlippedBear and zoneSweepShort and bearReject and (not useFrSweep or fractalSweepShort) and (not useMACD or macdBear)
 
 // ----------------------------------------------------
 // Pending setup state
